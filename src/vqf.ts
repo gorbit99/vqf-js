@@ -315,10 +315,8 @@ export class VQF {
       }
     }
 
-    let accEarth = tupleOfSize(3, () => 0);
-
     // filter acc in inertial frame
-    accEarth = VQF.quatRotate(this.state.gyrQuat, acc);
+    let accEarth = VQF.quatRotate(this.state.gyrQuat, acc);
     const result = VQF.filterVec(
       accEarth,
       3,
@@ -361,12 +359,11 @@ export class VQF {
     if (this.params.motionBiasEstEnabled || this.params.restBiasEstEnabled) {
       let biasClip = this.params.biasClip * (Math.PI / 180.0);
 
-      let accGyrQuat = emptyQuat();
       let R = tupleOfSize(9, () => 0);
       let biasLp = tupleOfSize(2, () => 0);
 
       // get rotation matrix corresponding to accGyrQuat
-      accGyrQuat = this.getQuat6D();
+      const accGyrQuat = this.getQuat6D();
       R[0] = 1 - 2 * square(accGyrQuat[2]) - 2 * square(accGyrQuat[3]); // r11
       R[1] =
         2 * (accGyrQuat[2] * accGyrQuat[1] - accGyrQuat[0] * accGyrQuat[3]); // r12
@@ -468,8 +465,7 @@ export class VQF {
         e = VQF.clip(e, -biasClip, biasClip, 3);
 
         // step 2: K = P R^T inv(W + R P R^T)
-        let K = tupleOfSize(9, () => 0);
-        K = VQF.matrix3MultiplyTpsSecond(this.state.biasP, R); // K = P R^T
+        let K = VQF.matrix3MultiplyTpsSecond(this.state.biasP, R); // K = P R^T
         K = VQF.matrix3Multiply(R, K); // K = R P R^T
         K[0] += w[0];
         K[4] += w[1];
@@ -502,12 +498,11 @@ export class VQF {
       return;
     }
 
-    let magEarth = tupleOfSize(3, () => 0);
-
     // bring magnetometer measurement into 6D earth frame
-    let accGyrQuat = emptyQuat();
-    accGyrQuat = this.getQuat6D();
-    magEarth = VQF.quatRotate(accGyrQuat, mag);
+    let accGyrQuat = this.getQuat6D();
+    let magEarth = VQF.quatRotate(accGyrQuat, mag);
+
+    // ---------
 
     if (this.params.magDistRejectionEnabled) {
       this.state.magNormDip[0] = VQF.norm(magEarth, 3);
@@ -528,6 +523,8 @@ export class VQF {
         this.state.magNormDipLpState = result.state;
         this.state.magNormDip = result.out;
       }
+
+      // ---------------
 
       // magnetic disturbance detection
       if (
@@ -550,6 +547,8 @@ export class VQF {
         this.state.magUndisturbedT = 0.0;
         this.state.magDistDetected = true;
       }
+
+      // ------------------
 
       // new magnetic field acceptance
       if (
@@ -906,7 +905,7 @@ export class VQF {
     this.state.magDistDetected = true;
 
     this.state.lastAccLp.fill(0);
-    this.state.accLpState = tupleOfSize(3, () => tupleOfSize(2, () => 0));
+    this.state.accLpState = tupleOfSize(3, () => tupleOfSize(2, () => NaN));
     this.state.lastAccCorrAngularRate = 0.0;
 
     this.state.kMagInit = 1.0;
@@ -977,7 +976,7 @@ export class VQF {
     const x = c * q[1] - s * q[2];
     const y = c * q[2] + s * q[1];
     const z = c * q[3] + s * q[0];
-    return [x, y, z, w];
+    return [w, x, y, z];
   }
 
   public static quatRotate(
@@ -1085,7 +1084,7 @@ export class VQF {
     a_new: Tuple<number, 2>,
     state: Tuple<Tuple<number, 2>, N>,
   ): Tuple<Tuple<number, 2>, N> {
-    if (Number.isNaN(state[0])) {
+    if (Number.isNaN(state[0][0])) {
       return state;
     }
     for (let i = 0; i < N; i++) {
@@ -1123,19 +1122,19 @@ export class VQF {
     // to avoid depending on a single sample, average the first samples (for duration tau)
     // and then use this average to calculate the filter initial state
     const out = tupleOfSize(N, () => 0);
-    if (Number.isNaN(state[0])) {
+    if (Number.isNaN(state[0][0])) {
       // initialization phase
-      if (Number.isNaN(state[1])) {
+      if (Number.isNaN(state[0][1])) {
         // first sample
         state[0][1] = 0; // state[1] is used to store the sample count
         for (let i = 0; i < N; i++) {
-          state[i][0] = 0; // state[2+i] is used to store the sum
+          state[Math.floor((2 + i) / 2)][(2 + i) % 2] = 0; // state[2+i] is used to store the sum
         }
       }
       state[0][1]++;
       for (let i = 0; i < N; i++) {
-        state[i][0] += x[i];
-        out[i] = state[i][0] / state[0][1];
+        state[Math.floor((2 + i) / 2)][(2 + i) % 2] += x[i];
+        out[i] = state[Math.floor((2 + i) / 2)][(2 + i) % 2] / state[0][1];
       }
       if (state[0][1] * Ts >= tau) {
         for (let i = 0; i < N; i++) {
